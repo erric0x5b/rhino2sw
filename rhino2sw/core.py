@@ -56,7 +56,12 @@ except Exception:
 @contextlib.contextmanager
 def silenzio():
     """Nasconde i messaggi tecnici di OpenCASCADE (scritti direttamente su stdout/stderr)."""
-    sys.stdout.flush(); sys.stderr.flush()
+    for st in (sys.stdout, sys.stderr):   # in un exe senza console sono None
+        try:
+            if st is not None:
+                st.flush()
+        except Exception:
+            pass
     salvati = []
     try:
         nul = os.open(os.devnull, os.O_WRONLY)

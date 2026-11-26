@@ -51,7 +51,7 @@ def main():
                 errori.append(f"{nome}: l'eseguibile non ha prodotto il risultato")
                 continue
             if re_["esito"] != esito:
-                errori.append(f"{nome} (exe): atteso {esito}, ottenuto {re_['esito']}")
+                errori.append(f"{nome} (exe): atteso {esito}, ottenuto {re_['esito']} ({re_.get('note')})")
             print(f"  {nome:24s} {re_['esito']}  (eseguibile)")
     if errori:
         print("\nFALLITO:\n  " + "\n  ".join(errori))
