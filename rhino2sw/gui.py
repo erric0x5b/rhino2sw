@@ -20,7 +20,8 @@ from . import REPO_URL, __version__, report, settings, updater
 ESTENSIONI = (".stp", ".step")
 CARTELLA_USCITA = "per_SolidWorks"
 
-COLORI = {"OK": "#d9f2dd", "NON CONVERTITO": "#fff1c7", "ERRORE": "#f8d4d4"}
+COLORI = {"OK": "#d9f2dd", "PARZIALE": "#fff1c7", "NON CONVERTITO": "#fff1c7", "SUPERFICI": "#eeeeee",
+          "ERRORE": "#f8d4d4"}
 
 
 def _raccogli(percorsi):
@@ -162,7 +163,13 @@ class PaginaConversione(QWidget):
     def aggiorna_etichetta_uscita(self):
         s = settings.carica()
         dove = s["cartella_uscita_fissa"] or f"accanto agli originali, nella cartella «{CARTELLA_USCITA}»"
-        self.etichetta_uscita.setText(f"File convertiti: {dove} &nbsp; <a href='#'>cambia…</a>")
+        if s["dividi_assiemi"]:
+            ass = ("una parte per corpo + file d'assieme" if s["modo_parti"] == "assieme"
+                   else "un file per istanza in coordinate assolute")
+            ass = f" — file con più corpi: {ass}, nomi da {'oggetto' if s['nome_parti'] == 'oggetto' else 'layer'}"
+        else:
+            ass = " — file con più corpi: parte multicorpo"
+        self.etichetta_uscita.setText(f"File convertiti: {dove}{ass} &nbsp; <a href='#'>cambia…</a>")
 
     def aggiungi_percorsi(self, percorsi):
         presenti = {v["path"] for v in self.voci}
@@ -216,7 +223,7 @@ class PaginaConversione(QWidget):
             stato = r.get("esito", stato)
         valori = [os.path.basename(v["path"]), os.path.dirname(v["path"]), stato,
                   str(r.get("convertite", "")), str(r.get("bspline_rimaste", "")),
-                  "" if r.get("scost_max_mm") is None else f"{r['scost_max_mm']:.5f}".replace(".", ","),
+                  "" if not isinstance(r.get("scost_max_mm"), (int, float)) else f"{r['scost_max_mm']:.5f}".replace(".", ","),
                   r.get("note", "")]
         colore = COLORI.get(stato)
         for c, testo in enumerate(valori):
@@ -263,6 +270,10 @@ class PaginaConversione(QWidget):
             args = pre + ["--worker", self.voci[i]["path"], jp]
             if self.s["cartella_uscita_fissa"]:
                 args += ["--uscita", self.s["cartella_uscita_fissa"]]
+            if self.s["dividi_assiemi"]:
+                args += ["--dividi", "--modo", self.s["modo_parti"], "--nomi", self.s["nome_parti"]]
+                if self.s["includi_superfici"]:
+                    args.append("--superfici")
             pr = QProcess(self)
             pr.setProcessChannelMode(QProcess.MergedChannels)
             pr.finished.connect(lambda code, status, pr=pr: self._finito(pr, code, status))
@@ -339,9 +350,11 @@ class PaginaConversione(QWidget):
             except OSError as ex:
                 msg = f" — impossibile scrivere il rapporto: {ex}"
         ok = sum(r.get("esito") == "OK" for r in self.risultati_lotto)
+        pz = sum(r.get("esito") == "PARZIALE" for r in self.risultati_lotto)
         nc = sum(r.get("esito") == "NON CONVERTITO" for r in self.risultati_lotto)
-        er = len(self.risultati_lotto) - ok - nc
-        self.finestra.statusBar().showMessage(f"Fatto: {ok} OK, {nc} non convertiti, {er} errori{msg}")
+        er = len(self.risultati_lotto) - ok - nc - pz
+        extra = f", {pz} assiemi parziali" if pz else ""
+        self.finestra.statusBar().showMessage(f"Fatto: {ok} OK{extra}, {nc} non convertiti, {er} errori{msg}")
         self.finestra.pagina_rapporti.ricarica()
         self.avanzamento.setVisible(False)
         auto = os.environ.get("RHINO2SW_AUTOTEST")
@@ -372,7 +385,7 @@ class PaginaRapporti(QWidget):
     VISTE = [("data_ora", "Data"), ("file", "File"), ("esito", "Esito"), ("convertite", "Convertite"),
              ("bspline_rimaste", "B-spline rimaste"), ("scost_max_mm", "Scostamento (mm)"),
              ("spigoli_gap", "Spigoli con gap"), ("gap_max_mm", "Gap max (mm)"), ("tipi_dopo", "Facce dopo"),
-             ("note", "Note"), ("utente", "Utente"), ("pc", "PC"), ("versione", "Versione"),
+             ("note", "Note"), ("layer", "Layer"), ("blocco", "Blocco"), ("istanze", "Istanze"), ("utente", "Utente"), ("pc", "PC"), ("versione", "Versione"),
              ("percorso", "Originale"), ("file_uscita", "Convertito")]
 
     def __init__(self, finestra):
@@ -389,7 +402,7 @@ class PaginaRapporti(QWidget):
         self.cerca.setClearButtonEnabled(True)
         self.cerca.textChanged.connect(self._filtra)
         self.combo = QComboBox()
-        self.combo.addItems(["Tutti gli esiti", "OK", "NON CONVERTITO", "ERRORE"])
+        self.combo.addItems(["Tutti gli esiti", "OK", "NON CONVERTITO", "SUPERFICI", "ERRORE"])
         self.combo.currentIndexChanged.connect(self._filtra)
         b_agg = QPushButton("Aggiorna")
         b_agg.clicked.connect(self.ricarica)
@@ -471,7 +484,7 @@ class PaginaRapporti(QWidget):
         self.filtro.esito = "" if self.combo.currentIndex() == 0 else self.combo.currentText()
         self.filtro.invalidate()
         tot = self.filtro.rowCount()
-        cont = {"OK": 0, "NON CONVERTITO": 0, "ERRORE": 0}
+        cont = {"OK": 0, "NON CONVERTITO": 0, "ERRORE": 0, "SUPERFICI": 0}
         for i in range(tot):
             e = self.filtro.index(i, 2).data()
             cont[e] = cont.get(e, 0) + 1
@@ -568,6 +581,34 @@ class DialogoImpostazioni(QDialog):
         f3.addRow("File convertiti in parallelo:", self.sp_proc)
         f3.addRow("Tempo massimo per file:", self.sp_time)
 
+        g5 = QGroupBox("File con più corpi (assiemi Rhino)")
+        l5 = QVBoxLayout(g5)
+        self.cb_dividi = QCheckBox("Dividi in file di parti (un file per corpo; i blocchi ripetuti diventano una parte sola)")
+        self.cb_dividi.setChecked(bool(self.s["dividi_assiemi"]))
+        self.r_assieme = QRadioButton("Parti + file d'assieme che le rimette nelle posizioni di Rhino "
+                                      "(i blocchi hanno origine nel punto base)")
+        self.r_assolute = QRadioButton("Un file per ogni istanza in coordinate assolute di Rhino "
+                                       "(inseriti all'origine si ricompone l'assieme)")
+        (self.r_assolute if self.s["modo_parti"] == "assolute" else self.r_assieme).setChecked(True)
+        self.co_nomi = QComboBox()
+        self.co_nomi.addItems(["Nome oggetto (poi blocco, poi layer)", "Layer (poi nome oggetto, poi blocco)"])
+        self.co_nomi.setCurrentIndex(1 if self.s["nome_parti"] == "layer" else 0)
+        self.cb_sup = QCheckBox("Esporta anche le superfici aperte (non solidi)")
+        self.cb_sup.setChecked(bool(self.s["includi_superfici"]))
+        riga5 = QHBoxLayout()
+        riga5.addWidget(QLabel("Nome dei file:"))
+        riga5.addWidget(self.co_nomi, 1)
+        for w in (self.cb_dividi, self.r_assieme, self.r_assolute):
+            l5.addWidget(w)
+        l5.addLayout(riga5)
+        l5.addWidget(self.cb_sup)
+
+        def _abilita(on):
+            for w in (self.r_assieme, self.r_assolute, self.co_nomi, self.cb_sup):
+                w.setEnabled(on)
+        self.cb_dividi.toggled.connect(_abilita)
+        _abilita(self.cb_dividi.isChecked())
+
         g4 = QGroupBox("Aggiornamenti")
         l4 = QVBoxLayout(g4)
         self.cb_agg = QCheckBox("Controlla all'avvio se c'è una versione nuova (una volta al giorno)")
@@ -578,7 +619,7 @@ class DialogoImpostazioni(QDialog):
         bb.accepted.connect(self._ok)
         bb.rejected.connect(self.reject)
         lay = QVBoxLayout(self)
-        for w in (g1, g2, g3, g4):
+        for w in (g1, g5, g2, g3, g4):
             lay.addWidget(w)
         lay.addWidget(bb)
 
@@ -601,7 +642,11 @@ class DialogoImpostazioni(QDialog):
                 return
         self.s.update(cartella_uscita_fissa=fissa, cartella_rapporti=rapp,
                       processi_paralleli=self.sp_proc.value(), timeout_minuti=self.sp_time.value(),
-                      controlla_aggiornamenti=self.cb_agg.isChecked())
+                      controlla_aggiornamenti=self.cb_agg.isChecked(),
+                      dividi_assiemi=self.cb_dividi.isChecked(),
+                      modo_parti="assolute" if self.r_assolute.isChecked() else "assieme",
+                      nome_parti="layer" if self.co_nomi.currentIndex() == 1 else "oggetto",
+                      includi_superfici=self.cb_sup.isChecked())
         settings.salva(self.s)
         self.accept()
 

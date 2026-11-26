@@ -24,6 +24,8 @@ Istruzioni d'uso: [docs/GUIDA.md](docs/GUIDA.md).
 - **Conversione**: si trascinano file o cartelle STEP (anche con sottocartelle), si preme *Converti*.
   Ogni file viene elaborato in un processo separato: un pezzo che manda in crash il motore geometrico
   non blocca gli altri. Doppio clic su una riga apre la cartella del file convertito.
+- **Assiemi**: un file Rhino con più corpi viene diviso in parti (nomi da oggetto, blocco o layer) più un
+  file d'assieme con le posizioni di Rhino.
 - **Rapporti**: storico di tutte le conversioni da un unico CSV, con ricerca e filtro per esito.
 - **Impostazioni**: dove salvare i file convertiti (accanto agli originali o cartella fissa), dove tenere
   il CSV dei rapporti (anche una cartella di rete condivisa per tutto l'ufficio), conversioni in parallelo.
@@ -33,8 +35,11 @@ Istruzioni d'uso: [docs/GUIDA.md](docs/GUIDA.md).
 |---|---|
 | Riconoscimento piano/cilindro/cono | 0,001 mm |
 | Solido valido dopo la conversione | obbligatorio |
-| Differenza di volume | ≤ 0,001 % |
-| Scostamento massimo (punti campionati) | ≤ 0,005 mm |
+| Differenza di volume | ≤ area totale × 0,001 mm |
+| Differenza di area totale | ≤ 0,01 % |
+| Tolleranze degli spigoli | non aumentate |
+| Rilettura dello STEP scritto | non peggiore della rilettura dell'originale |
+| Scostamento massimo per faccia (interno e bordi) | ≤ 0,005 mm |
 | Spigoli con gap segnalati | > 0,001 mm |
 
 ## Sviluppo

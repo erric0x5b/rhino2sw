@@ -20,6 +20,10 @@ PREDEFINITE = {
     "cartella_uscita_fissa": "",   # vuoto = accanto agli originali in per_SolidWorks
     "processi_paralleli": 2,
     "timeout_minuti": 15,
+    "dividi_assiemi": True,         # file con piu' corpi -> una parte per corpo + assieme
+    "modo_parti": "assieme",        # "assieme" | "assolute"
+    "nome_parti": "oggetto",        # "oggetto" | "layer"
+    "includi_superfici": False,
     "controlla_aggiornamenti": True,
     "ultimo_controllo": 0,          # epoch dell'ultimo controllo aggiornamenti riuscito
     "versione_saltata": "",         # "Salta questa versione"

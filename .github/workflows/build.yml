@@ -42,6 +42,7 @@ jobs:
         run: |
           python tests/test_conversione.py
           python tests/test_aggiornamenti.py
+          python tests/test_assieme.py
 
       - name: Build eseguibile (PyInstaller)
         run: pyinstaller --noconfirm rhino2sw.spec

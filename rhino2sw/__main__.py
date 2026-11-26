@@ -4,7 +4,7 @@
     rhino2sw file.stp cartella ...   apre la finestra con i file gia' in elenco
                                      (trascinamento sull'icona, menu "Invia a")
     rhino2sw --cli file ...          conversione da riga di comando
-    rhino2sw --worker IN OUT.json [--uscita DIR]
+    rhino2sw --worker IN OUT.json [--uscita DIR] [--dividi --modo assieme|assolute --nomi oggetto|layer --superfici]
                                      uso interno: converte un file in un processo separato
 """
 import json
@@ -12,11 +12,22 @@ import os
 import sys
 
 
-def _worker(argv):
+def _opzione(argv, nome, predefinito=None):
+    return argv[argv.index(nome) + 1] if nome in argv else predefinito
+
+
+def _converti(path, uscita, dividi, modo, nomi, superfici):
+    if dividi:
+        from .assieme import converti_auto
+        return converti_auto(path, uscita, modo, nomi, superfici)
     from .core import converti_file
+    return converti_file(path, uscita)
+
+
+def _worker(argv):
     inp, out_json = argv[0], argv[1]
-    uscita = argv[argv.index("--uscita") + 1] if "--uscita" in argv else None
-    r = converti_file(inp, uscita or None)
+    r = _converti(inp, _opzione(argv, "--uscita") or None, "--dividi" in argv,
+                  _opzione(argv, "--modo", "assieme"), _opzione(argv, "--nomi", "oggetto"), "--superfici" in argv)
     tmp = out_json + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(r, fh, ensure_ascii=False, default=str)
@@ -26,7 +37,7 @@ def _worker(argv):
 
 def _cli(argv):
     from . import __version__, report, settings
-    from .core import converti_file, raccogli
+    from .core import raccogli
     s = settings.carica()
     files = raccogli(argv)
     print(f"rhino2sw {__version__}\n")
@@ -36,9 +47,12 @@ def _cli(argv):
     risultati = []
     for i, p in enumerate(files, 1):
         print(f"[{i}/{len(files)}] {os.path.basename(p)} ... ", end="", flush=True)
-        r = converti_file(p, s["cartella_uscita_fissa"] or None)
+        r = _converti(p, s["cartella_uscita_fissa"] or None, s["dividi_assiemi"], s["modo_parti"],
+                      s["nome_parti"], s["includi_superfici"])
         risultati.append(r)
-        if r["esito"] == "OK":
+        if r.get("parti"):
+            print(f"{r['esito']}: {r['note']}")
+        elif r["esito"] == "OK":
             print(f"OK ({r['convertite']} facce convertite, {r['bspline_rimaste']} B-spline rimaste)")
         else:
             print(f"{r['esito']}: {r.get('note', '')}")
