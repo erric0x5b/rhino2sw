@@ -1,0 +1,44 @@
+rhino2sw 0.1 - pulizia dei file STEP di Rhino per SolidWorks
+=============================================================
+
+COSA FA
+Rhino esporta tutte le facce come superfici B-spline, anche piani e fori.
+SolidWorks allora non trova assi e piani: niente accoppiamenti concentrici,
+niente quote di diametro in tavola. Questo programma riconosce le facce che
+sono piani, cilindri e coni e le riscrive come geometria esatta, senza
+spostare la geometria. Poi controlla il risultato: se qualcosa non torna
+NON scrive il file e lo segnala nel rapporto.
+
+INSTALLAZIONE (una volta per PC)
+1. Serve Python 3.14 (vanno bene da 3.11 a 3.14, NON 3.15) da https://www.python.org/downloads/windows/
+   (durante l'installazione spuntare "Add python.exe to PATH").
+2. Copiare questa cartella sul PC (non lanciarla da una cartella di rete).
+3. Doppio clic su 1_INSTALLA.bat (serve internet, qualche minuto).
+
+USO
+- Da Rhino esportare in STEP (AP214).
+- Trascinare uno o piu' file .stp/.step, oppure una cartella intera,
+  sopra "Converti_per_SolidWorks.bat".
+  (Con doppio clic si apre una finestra per scegliere i file.)
+- Accanto ai file originali compare la cartella "per_SolidWorks" con:
+    NOMEPEZZO_SW.stp     -> da aprire in SolidWorks
+    rapporto_....txt     -> leggibile
+    rapporto_....csv     -> apribile in Excel
+- Gli originali non vengono mai modificati.
+
+COME LEGGERE IL RAPPORTO
+OK              file pronto per SolidWorks.
+NON CONVERTITO  il controllo ha fallito: usare l'originale. Il motivo e' nelle note
+                (es. "superfici aperte": il pezzo non e' chiuso in Rhino).
+ERRORE          file illeggibile o problema del programma: mandare il file.
+Note utili:
+- "facce restano B-spline": forme libere o raccordi; su quelle non si accoppia
+  e non si quota il raggio.
+- "spigoli con gap": punti dove le facce non combaciano entro 0,001 mm;
+  se SolidWorks segnala errori, sono li'.
+
+LIMITI NOTI (versione di prova)
+- I raccordi a toro restano B-spline.
+- I gap non vengono ricuciti, solo segnalati.
+- Se il pezzo cambia in Rhino va riconvertito: gli accoppiamenti in assieme
+  possono rompersi come per qualunque file importato.

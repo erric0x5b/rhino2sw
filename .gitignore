@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+per_SolidWorks/
+dist/
+build/
+*.stp
+*.step
+*.x_t
+*.3dm
+!tests/dati/*.stp
