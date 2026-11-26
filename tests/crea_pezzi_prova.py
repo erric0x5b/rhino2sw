@@ -19,12 +19,14 @@ n=BRepBuilderAPI_NurbsConvert(s,True).Shape()
 t=gp_Trsf(); t.SetTranslation(gp_Vec(200,-50,300)); n2=BRepBuilderAPI_Transform(n,t,False).Shape()
 def w(sh,p):
     W=STEPControl_Writer(); W.Transfer(sh,STEPControl_AsIs); W.Write(p)
-import os; os.makedirs('cartella/sub',exist_ok=True)
-w(n,'cartella/blocco_nurbs.stp'); w(n2,'cartella/sub/blocco_spostato.step')
+import os, sys
+D = sys.argv[1] if len(sys.argv) > 1 else 'cartella'
+os.makedirs(os.path.join(D, 'sub'), exist_ok=True)
+w(n,D + '/blocco_nurbs.stp'); w(n2,D + '/sub/blocco_spostato.step')
 # open shell: drop one face
 B=BRep_Builder(); comp=TopoDS_Compound(); B.MakeCompound(comp); e=TopExp_Explorer(n,TopAbs_FACE); first=True
 while e.More():
     if not first: B.Add(comp,e.Current())
     first=False; e.Next()
-w(comp,'cartella/aperto.stp')
-open('cartella/rotto.stp','w').write('non sono uno step')
+w(comp,D + '/aperto.stp')
+open(D + '/rotto.stp','w').write('non sono uno step')

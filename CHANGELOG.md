@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.1 – 2026-11-26
+- **File di Rhino già difettosi**: se l'originale ha facce non valide, il pezzo viene convertito purché
+  la conversione non aggiunga difetti; il rapporto lo segnala. Prima veniva rifiutato.
+- **Scostamento verificato faccia per faccia** durante la conversione (punti interni e lungo i bordi):
+  una faccia che non rispetta 0,005 mm resta B-spline invece di far fallire tutto il file.
+- Nuovo controllo sull'**area totale** (`diff_area_%`), oltre al volume.
+- Pezzi con molte superfici libere (filettature): eliminato il controllo che esauriva la memoria;
+  sul caso segnalato da ~276 s a ~50 s.
+- CSV dei rapporti: le colonne nuove vengono aggiunte al file esistente senza perdere lo storico.
+
+## 0.2.0 – 2026-11-26
+- **Applicazione Windows** con installatore (Inno Setup) e pacchetto portatile: Python e librerie
+  inclusi, installazione per utente senza diritti di amministratore, voce opzionale nel menu «Invia a».
+- **Finestra** (PySide6): elenco file con trascinamento di file e cartelle, conversione in parallelo
+  con avanzamento e pulsante Ferma, tabella dei rapporti con ricerca e filtro per esito, impostazioni.
+- Ogni file viene convertito in un **processo separato** con tempo massimo: un crash del motore
+  geometrico su un pezzo non blocca gli altri e viene riportato come ERRORE.
+- **Rapporti in un unico CSV** (`%LOCALAPPDATA%\rhino2sw\rapporti_rhino2sw.csv` o cartella di rete
+  configurabile), con data, utente, PC e versione; decimali con la virgola per Excel; righe tenute da
+  parte se il CSV è bloccato. Importazione dei rapporti della 0.1.
+- Cartella di uscita configurabile (accanto agli originali o cartella fissa).
+- Pulizia dei file temporanei; test automatici e build su GitHub Actions.
+- Codice riorganizzato nel pacchetto `rhino2sw/`; `script_windows/` per l'avvio da sorgente.
+
 ## 0.1.1 – 2026-11-19
 - Installatore accetta Python 3.11–3.14 (la 3.15 non ha ancora la libreria geometrica).
 
