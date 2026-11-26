@@ -9,3 +9,4 @@ build/
 *.x_t
 *.3dm
 !tests/dati/*.stp
+*.json.tmp

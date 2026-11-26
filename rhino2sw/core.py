@@ -1,18 +1,15 @@
 """
-rhino2sw - Pulizia di file STEP esportati da Rhino per SolidWorks.
+rhino2sw.core - motore di conversione.
 
 Converte le facce B-spline che sono in realta' piani, cilindri e coni in
 geometria analitica vera, unisce le facce spezzate, verifica il solido e
 scrive uno STEP AP214 per SolidWorks. Se il risultato non supera i controlli
 il file NON viene scritto e il rapporto lo segnala.
 
-Uso:
-    python rhino2sw.py file1.stp file2.step cartella ...
-    python rhino2sw.py            (apre una finestra per scegliere i file)
 """
-import sys, os, csv, time, math, collections, traceback
+import sys, os, time, collections, shutil, tempfile
 
-VERSIONE = "0.1.1"
+from . import __version__ as VERSIONE
 TOL_CONV = 0.001        # mm: scostamento massimo ammesso per riconoscere piano/cilindro/cono
 TOL_DEV_MAX = 0.005     # mm: scostamento massimo ammesso tra originale e ripulito
 TOL_VOL_REL = 1e-5      # differenza relativa di volume massima ammessa
@@ -123,7 +120,6 @@ def gap_spigoli(sh):
 
 def _copia_temp(path):
     """OpenCASCADE puo' avere problemi con percorsi con accenti/rete: lavora su una copia locale."""
-    import tempfile, shutil
     d = tempfile.mkdtemp(prefix="rhino2sw_")
     dst = os.path.join(d, "in" + os.path.splitext(path)[1].lower())
     shutil.copyfile(path, dst)
@@ -132,12 +128,15 @@ def _copia_temp(path):
 
 def leggi_step(path):
     path = _copia_temp(path)
-    with silenzio():
-        r = STEPControl_Reader()
-        ok = r.ReadFile(path) == IFSelect_RetDone
-        if ok:
-            r.TransferRoots()
-            s = r.OneShape()
+    try:
+        with silenzio():
+            r = STEPControl_Reader()
+            ok = r.ReadFile(path) == IFSelect_RetDone
+            if ok:
+                r.TransferRoots()
+                s = r.OneShape()
+    finally:
+        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
     if not ok:
         raise RuntimeError("file STEP non leggibile")
     if s is None or s.IsNull():
@@ -235,16 +234,18 @@ def scostamento_max(nuovo, orig, campioni=4):
 
 
 def scrivi_step(s, path_finale):
-    import tempfile, shutil
     path = os.path.join(tempfile.mkdtemp(prefix="rhino2sw_"), "out.stp")
     Interface_Static.SetCVal_s("write.step.schema", "AP214IS")
     Interface_Static.SetCVal_s("write.step.unit", "MM")
     with silenzio():
         w = STEPControl_Writer(); w.Transfer(s, STEPControl_AsIs)
         ok = w.Write(path) == IFSelect_RetDone
-    if not ok:
-        raise RuntimeError("scrittura STEP fallita")
-    shutil.copyfile(path, path_finale)
+    try:
+        if not ok:
+            raise RuntimeError("scrittura STEP fallita")
+        shutil.copyfile(path, path_finale)
+    finally:
+        shutil.rmtree(os.path.dirname(path), ignore_errors=True)
 
 
 def fmt_tipi(c):
@@ -301,85 +302,48 @@ def elabora(path):
     return r, s
 
 
+ESTENSIONI = (".stp", ".step")
+
+
+def cartella_uscita(path, cartella_fissa=None):
+    if cartella_fissa:
+        return cartella_fissa
+    return os.path.join(os.path.dirname(path), CARTELLA_USCITA)
+
+
+def converti_file(path, cartella_fissa=None):
+    """Converte un file e restituisce il dizionario del rapporto (non solleva eccezioni)."""
+    t0 = time.time()
+    try:
+        r, s = elabora(path)
+        if s is not None:
+            dout = cartella_uscita(path, cartella_fissa)
+            os.makedirs(dout, exist_ok=True)
+            fout = os.path.join(dout, os.path.splitext(os.path.basename(path))[0] + "_SW.stp")
+            scrivi_step(s, fout)
+            r["file_uscita"] = fout
+    except RuntimeError as ex:
+        r = {"file": os.path.basename(path), "esito": "ERRORE", "note": str(ex)}
+    except Exception as ex:  # errore interno: lo riportiamo, non blocchiamo il resto
+        r = {"file": os.path.basename(path), "esito": "ERRORE", "note": f"errore interno: {ex!r}"}
+    r["percorso"] = path
+    r["secondi"] = round(time.time() - t0, 1)
+    r["data_ora"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    r["versione"] = VERSIONE
+    return r
+
+
 def raccogli(argomenti):
+    """Espande file e cartelle in un elenco di file STEP."""
     out = []
     for a in argomenti:
-        a = a.strip('"')
+        a = str(a).strip('"')
         if os.path.isdir(a):
             for root, dirs, files in os.walk(a):
-                if CARTELLA_USCITA in os.path.basename(root):
-                    continue
-                out += [os.path.join(root, f) for f in files if f.lower().endswith((".stp", ".step"))]
-        elif a.lower().endswith((".stp", ".step")) and os.path.isfile(a):
+                dirs[:] = [d for d in dirs if d != CARTELLA_USCITA]
+                out += [os.path.join(root, f) for f in files if f.lower().endswith(ESTENSIONI)]
+        elif a.lower().endswith(ESTENSIONI) and os.path.isfile(a):
             out.append(a)
-    return sorted(set(out))
+    return sorted(set(os.path.normpath(p) for p in out))
 
 
-def scegli_file():
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk(); root.withdraw()
-        f = filedialog.askopenfilenames(title="Scegli i file STEP esportati da Rhino",
-                                        filetypes=[("STEP", "*.stp *.step"), ("Tutti", "*.*")])
-        root.destroy(); return list(f)
-    except Exception:
-        return []
-
-
-def main():
-    print(f"rhino2sw {VERSIONE} - pulizia STEP da Rhino per SolidWorks\n")
-    files = raccogli(sys.argv[1:]) if len(sys.argv) > 1 else raccogli(scegli_file())
-    if not files:
-        print("Nessun file .stp/.step trovato. Trascina file o cartelle sull'icona 'Converti'.")
-        return 1
-    risultati = []
-    for i, p in enumerate(files, 1):
-        print(f"[{i}/{len(files)}] {os.path.basename(p)} ... ", end="", flush=True)
-        try:
-            r, s = elabora(p)
-            if s is not None:
-                dout = os.path.join(os.path.dirname(p), CARTELLA_USCITA); os.makedirs(dout, exist_ok=True)
-                fout = os.path.join(dout, os.path.splitext(os.path.basename(p))[0] + "_SW.stp")
-                scrivi_step(s, fout); r["file_uscita"] = fout
-                print(f"OK  ({r['convertite']} facce convertite, {r['bspline_rimaste']} B-spline rimaste)")
-            else:
-                print(f"NON CONVERTITO: {r['note']}")
-        except RuntimeError as ex:
-            r = {"file": os.path.basename(p), "esito": "ERRORE", "note": str(ex)}
-            print(f"ERRORE: {ex}")
-        except Exception as ex:
-            r = {"file": os.path.basename(p), "esito": "ERRORE", "note": f"errore interno: {ex!r}"}
-            print(f"ERRORE INTERNO: {ex!r}")
-            traceback.print_exc()
-        r["percorso"] = p
-        risultati.append(r)
-
-    # rapporto nella cartella del primo file
-    dout = os.path.join(os.path.dirname(files[0]), CARTELLA_USCITA); os.makedirs(dout, exist_ok=True)
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    campi = ["file", "esito", "solidi", "facce_prima", "facce_dopo", "convertite", "bspline_rimaste",
-             "tipi_prima", "tipi_dopo", "volume_mm3", "diff_volume_%", "scost_max_mm",
-             "spigoli_gap", "gap_max_mm", "note", "percorso", "file_uscita"]
-    with open(os.path.join(dout, f"rapporto_{stamp}.csv"), "w", newline="", encoding="utf-8-sig") as fh:
-        w = csv.DictWriter(fh, fieldnames=campi, delimiter=";", extrasaction="ignore"); w.writeheader()
-        for r in risultati: w.writerow(r)
-    with open(os.path.join(dout, f"rapporto_{stamp}.txt"), "w", encoding="utf-8") as fh:
-        fh.write(f"rhino2sw {VERSIONE} - {time.strftime('%d/%m/%Y %H:%M')}\n\n")
-        for r in risultati:
-            fh.write(f"=== {r['file']}: {r['esito']}\n")
-            if "facce_prima" in r:
-                fh.write(f"  prima: {r['facce_prima']} facce ({r['tipi_prima']})\n")
-            if "facce_dopo" in r:
-                fh.write(f"  dopo:  {r['facce_dopo']} facce ({r['tipi_dopo']})\n")
-                fh.write(f"  volume {r['volume_mm3']} mm3, differenza {r['diff_volume_%']}%, scostamento max {r['scost_max_mm']} mm\n")
-            if r.get("note"): fh.write(f"  note: {r['note']}\n")
-            if r.get("file_uscita"): fh.write(f"  -> {r['file_uscita']}\n")
-            fh.write("\n")
-    ok = sum(r["esito"] == "OK" for r in risultati)
-    print(f"\nFatto: {ok}/{len(risultati)} convertiti. File e rapporto in: {dout}")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

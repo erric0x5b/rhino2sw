@@ -1,0 +1,95 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # serve solo per pubblicare la release sui tag
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+
+      - name: Dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+
+      - name: Versione
+        id: ver
+        shell: bash
+        run: |
+          V=$(python -c "import rhino2sw; print(rhino2sw.__version__)")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF#refs/tags/v}" != "$V" ]]; then
+            echo "::error::Il tag ${GITHUB_REF#refs/tags/} non corrisponde a __version__ = $V"; exit 1
+          fi
+
+      - name: Test (sorgente)
+        run: python tests/test_conversione.py
+
+      - name: Build eseguibile (PyInstaller)
+        run: pyinstaller --noconfirm rhino2sw.spec
+
+      - name: Test (eseguibile)
+        run: python tests/test_conversione.py --exe dist\rhino2sw\rhino2sw.exe
+
+      - name: Test interfaccia (avvio, conversione, chiusura)
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          RHINO2SW_AUTOTEST: ${{ runner.temp }}\auto.json
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP "pezzi"
+          python tests/crea_pezzi_prova.py $d
+          $p = Start-Process -FilePath dist\rhino2sw\rhino2sw.exe -ArgumentList "`"$d`"" -PassThru -Wait
+          if (-not (Test-Path $env:RHINO2SW_AUTOTEST)) { throw "La GUI non ha completato la conversione" }
+          $r = Get-Content $env:RHINO2SW_AUTOTEST -Raw | ConvertFrom-Json
+          $r | Format-Table file, esito
+          if (($r | Where-Object esito -eq "OK").Count -ne 2) { throw "Esiti GUI inattesi" }
+
+      - name: Installatore (Inno Setup)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=${{ steps.ver.outputs.version }}" installer\rhino2sw.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC fallito" }
+
+      - name: Pacchetto portatile
+        shell: pwsh
+        run: Compress-Archive -Path dist\rhino2sw -DestinationPath "dist\rhino2sw-${{ steps.ver.outputs.version }}-portatile.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhino2sw-${{ steps.ver.outputs.version }}-windows
+          path: |
+            dist/rhino2sw-*-setup.exe
+            dist/rhino2sw-*-portatile.zip
+          retention-days: 30
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/rhino2sw-*-setup.exe
+            dist/rhino2sw-*-portatile.zip
+          body_path: CHANGELOG.md
