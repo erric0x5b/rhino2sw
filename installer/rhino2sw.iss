@@ -26,9 +26,8 @@ OutputDir=..\dist
 OutputBaseFilename=rhino2sw-{#AppVersion}-setup
 SetupIconFile=..\assets\rhino2sw.ico
 UninstallDisplayIcon={app}\rhino2sw.exe
-Compression=lzma2/ultra64
+Compression=lzma2/max
 SolidCompression=yes
-LZMANumBlockThreads=4
 WizardStyle=modern
 LicenseFile=..\LICENSE
 ; i rapporti e le impostazioni (in %LOCALAPPDATA%\rhino2sw) NON vengono cancellati alla disinstallazione
