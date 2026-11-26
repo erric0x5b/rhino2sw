@@ -14,8 +14,8 @@ IN_ATTESA = "rapporti_in_attesa.csv"   # righe non scritte perche' il CSV era bl
 
 CAMPI = ["data_ora", "utente", "pc", "versione", "file", "esito", "solidi", "facce_prima", "facce_dopo",
          "convertite", "bspline_rimaste", "tipi_prima", "tipi_dopo", "volume_mm3", "diff_volume_%",
-         "scost_max_mm", "spigoli_gap", "gap_max_mm", "secondi", "note", "percorso", "file_uscita"]
-DECIMALI = {"volume_mm3": 2, "diff_volume_%": 6, "scost_max_mm": 5, "gap_max_mm": 4, "secondi": 1}
+         "diff_area_%", "scost_max_mm", "spigoli_gap", "gap_max_mm", "secondi", "note", "percorso", "file_uscita"]
+DECIMALI = {"volume_mm3": 2, "diff_volume_%": 6, "diff_area_%": 6, "scost_max_mm": 5, "gap_max_mm": 4, "secondi": 1}
 NUMERICI = set(DECIMALI)
 
 
@@ -48,12 +48,25 @@ def _intestazione_ok(path):
         return False
 
 
+def _migra(path):
+    """Riscrive un CSV con colonne di una versione precedente nel formato attuale (colonne nuove vuote)."""
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        vecchie = list(csv.DictReader(fh, delimiter=";"))
+    copia = path[:-4] + time.strftime("_backup_%Y%m%d_%H%M%S.csv")
+    os.replace(path, copia)
+    with open(path, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=CAMPI, delimiter=";", extrasaction="ignore", restval="")
+        w.writeheader()
+        w.writerows(vecchie)
+    os.remove(copia)
+
+
 def _scrivi(path, righe):
     """Aggiunge righe; se il file ha un formato vecchio lo archivia e ne crea uno nuovo."""
     d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
     if os.path.exists(path) and os.path.getsize(path) > 0 and not _intestazione_ok(path):
-        os.replace(path, path[:-4] + time.strftime("_formato_vecchio_%Y%m%d_%H%M%S.csv"))
+        _migra(path)
     nuovo = not os.path.exists(path) or os.path.getsize(path) == 0
     with open(path, "a", encoding="utf-8-sig" if nuovo else "utf-8", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=CAMPI, delimiter=";", extrasaction="ignore")

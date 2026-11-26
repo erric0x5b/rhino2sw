@@ -13,6 +13,7 @@ from . import __version__ as VERSIONE
 TOL_CONV = 0.001        # mm: scostamento massimo ammesso per riconoscere piano/cilindro/cono
 TOL_DEV_MAX = 0.005     # mm: scostamento massimo ammesso tra originale e ripulito
 TOL_VOL_REL = 1e-5      # differenza relativa di volume massima ammessa
+TOL_AREA_REL = 1e-5     # differenza relativa di area totale massima ammessa
 TOL_GAP = 0.001         # mm: soglia per segnalare spigoli con gap
 CONVERTI_TORI = False   # i raccordi a toro davano facce non valide: per ora restano B-spline
 CARTELLA_USCITA = "per_SolidWorks"
@@ -21,13 +22,13 @@ from OCP.STEPControl import STEPControl_Reader, STEPControl_Writer, STEPControl_
 from OCP.Interface import Interface_Static
 from OCP.IFSelect import IFSelect_RetDone
 from OCP.TopExp import TopExp_Explorer
-from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_SOLID, TopAbs_SHELL, TopAbs_IN
+from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_SOLID, TopAbs_SHELL, TopAbs_OUT
 from OCP.TopoDS import TopoDS, TopoDS_Compound
 from OCP.BRep import BRep_Tool, BRep_Builder
-from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve2d
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepBuilderAPI import (BRepBuilderAPI_Copy, BRepBuilderAPI_Sewing,
-                                BRepBuilderAPI_MakeSolid, BRepBuilderAPI_MakeVertex)
+                                BRepBuilderAPI_MakeSolid)
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 from OCP.ShapeAnalysis import ShapeAnalysis_Surface
@@ -36,11 +37,8 @@ from OCP.ShapeFix import ShapeFix_Shape, ShapeFix_Edge, ShapeFix_Solid
 from OCP.GeomConvert import GeomConvert_SurfToAnaSurf
 from OCP.GeomLProp import GeomLProp_SLProps
 from OCP.BRepTools import BRepTools
-from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.BRepClass import BRepClass_FaceClassifier
 from OCP.gp import gp_Pnt2d
-from OCP.Bnd import Bnd_Box
-from OCP.BRepBndLib import BRepBndLib
 from OCP.TopLoc import TopLoc_Location
 
 import contextlib
@@ -109,6 +107,14 @@ def volume(sh):
     g = GProp_GProps(); BRepGProp.VolumeProperties_s(sh, g, 1e-7); return g.Mass()
 
 
+def area(sh):
+    g = GProp_GProps(); BRepGProp.SurfaceProperties_s(sh, g, 1e-7); return g.Mass()
+
+
+def facce_non_valide(sh):
+    return sum(1 for f in facce(sh) if not BRepCheck_Analyzer(f).IsValid())
+
+
 def gap_spigoli(sh):
     visti = set(); n = 0; mx = 0.0
     e = TopExp_Explorer(sh, TopAbs_EDGE)
@@ -168,8 +174,34 @@ def chiudi_in_solidi(s):
     return (comp, True) if fatti else (s, False)
 
 
+def _scostamento_faccia(f, surf_orig, ns, campioni=5):
+    """Distanza massima tra punti della faccia originale (dentro i suoi bordi) e la nuova superficie."""
+    sa = ShapeAnalysis_Surface(ns)
+    u1, u2, v1, v2 = BRepTools.UVBounds_s(f)
+    mx = 0.0; n = 0
+    for i in range(campioni + 2):
+        for j in range(campioni + 2):
+            u = u1 + (u2 - u1) * i / (campioni + 1); v = v1 + (v2 - v1) * j / (campioni + 1)
+            if BRepClass_FaceClassifier(f, gp_Pnt2d(u, v), 1e-6).State() == TopAbs_OUT:
+                continue
+            sa.ValueOfUV(surf_orig.Value(u, v), 1e-7)
+            mx = max(mx, sa.Gap()); n += 1
+    # anche lungo i bordi: punti delle curve parametriche sulla superficie originale
+    e = TopExp_Explorer(f, TopAbs_EDGE)
+    while e.More():
+        c2 = BRepAdaptor_Curve2d(TopoDS.Edge(e.Current()), f)
+        a, b = c2.FirstParameter(), c2.LastParameter()
+        for k in range(1, 6):
+            uv = c2.Value(a + (b - a) * k / 6)
+            sa.ValueOfUV(surf_orig.Value(uv.X(), uv.Y()), 1e-7)
+            mx = max(mx, sa.Gap()); n += 1
+        e.Next()
+    return mx if n else float("inf")
+
+
 def converti_analitiche(s):
-    B = BRep_Builder(); n = 0
+    """Sostituisce le B-spline riconosciute. Restituisce (facce convertite, scostamento massimo, scartate)."""
+    B = BRep_Builder(); n = 0; dev_max = 0.0; scartate = 0
     for f in list(facce(s)):
         if tipo_faccia(f) not in ("BSpline", "Bezier"):
             continue
@@ -191,7 +223,12 @@ def converti_analitiche(s):
             continue
         if pr.Normal().Dot(pr2.Normal()) < 0:
             ns.UReverse()
-        tol = max(BRep_Tool.Tolerance_s(f), sa.Gap())
+        dev = _scostamento_faccia(f, surf, ns)
+        if dev > TOL_DEV_MAX:       # entro la tolleranza al centro ma non su tutta la faccia: non tocco
+            scartate += 1
+            continue
+        dev_max = max(dev_max, dev)
+        tol = max(BRep_Tool.Tolerance_s(f), sa.Gap(), dev)
         spig = []; e = TopExp_Explorer(f, TopAbs_EDGE)
         while e.More():
             spig.append(TopoDS.Edge(e.Current())); e.Next()
@@ -204,38 +241,7 @@ def converti_analitiche(s):
         e = TopExp_Explorer(f, TopAbs_EDGE)
         while e.More():
             fe.FixAddPCurve(TopoDS.Edge(e.Current()), f, False, 1e-4); e.Next()
-    return n
-
-
-def scostamento_max(nuovo, orig, campioni=4):
-    """Distanza massima di punti campionati sulle facce nuove dalla geometria originale."""
-    rif = []
-    for f in facce(orig):
-        b = Bnd_Box(); BRepBndLib.Add_s(f, b); b.Enlarge(0.05)
-        rif.append((f, b, ShapeAnalysis_Surface(BRep_Tool.Surface_s(f))))
-    dss = None
-    mx = 0.0; npt = 0
-    for f in facce(nuovo):
-        S = BRep_Tool.Surface_s(f); u1, u2, v1, v2 = BRepTools.UVBounds_s(f)
-        for i in range(1, campioni + 1):
-            for j in range(1, campioni + 1):
-                u = u1 + (u2 - u1) * i / (campioni + 1); v = v1 + (v2 - v1) * j / (campioni + 1)
-                if BRepClass_FaceClassifier(f, gp_Pnt2d(u, v), 1e-6).State() != TopAbs_IN:
-                    continue
-                p = S.Value(u, v); best = None
-                for fo, bo, sa in rif:
-                    if bo.IsOut(p):
-                        continue
-                    uv = sa.ValueOfUV(p, 1e-7)
-                    if BRepClass_FaceClassifier(fo, uv, 1e-4).State() == TopAbs_IN:
-                        g = sa.Gap(); best = g if best is None else min(best, g)
-                if best is None or best > TOL_DEV_MAX:   # verifica esatta solo se serve
-                    if dss is None:
-                        dss = BRepExtrema_DistShapeShape(); dss.LoadS2(orig)
-                    dss.LoadS1(BRepBuilderAPI_MakeVertex(p).Vertex()); dss.Perform()
-                    best = dss.Value()
-                mx = max(mx, best); npt += 1
-    return mx, npt
+    return n, dev_max, scartate
 
 
 def scrivi_step(s, path_finale):
@@ -267,34 +273,47 @@ def elabora(path):
         r["esito"] = "NON CONVERTITO"
         r["note"] = "nel file ci sono solo superfici aperte: il pezzo non e' chiuso, va sistemato in Rhino"
         return r, None
-    v0 = volume(orig); c0 = tipi(orig)
+    v0 = volume(orig); a0 = area(orig); c0 = tipi(orig)
     r["facce_prima"] = sum(c0.values()); r["tipi_prima"] = fmt_tipi(c0)
     r["valido_prima"] = BRepCheck_Analyzer(orig).IsValid()
+    r["facce_non_valide_prima"] = 0 if r["valido_prima"] else facce_non_valide(orig)
 
     s = BRepBuilderAPI_Copy(orig).Shape()
-    r["convertite"] = converti_analitiche(s)
+    r["convertite"], dev, scartate = converti_analitiche(s)
     fx = ShapeFix_Shape(s); fx.Perform(); s = fx.Shape()
     u = ShapeUpgrade_UnifySameDomain(s, True, True, False); u.Build(); s = u.Shape()
     fx = ShapeFix_Shape(s); fx.Perform(); s = fx.Shape()
 
-    c1 = tipi(s); v1 = volume(s)
+    c1 = tipi(s); v1 = volume(s); a1 = area(s)
     r["facce_dopo"] = sum(c1.values()); r["tipi_dopo"] = fmt_tipi(c1)
     r["bspline_rimaste"] = c1.get("BSpline", 0) + c1.get("Bezier", 0)
     r["valido_dopo"] = BRepCheck_Analyzer(s).IsValid()
     r["solidi_dopo"] = conta(s, TopAbs_SOLID)
     r["volume_mm3"] = round(v0, 2)
     r["diff_volume_%"] = round(100 * (v1 - v0) / v0, 6) if v0 else 0
-    r["scost_max_mm"], _ = scostamento_max(s, orig)
-    r["scost_max_mm"] = round(r["scost_max_mm"], 5)
+    r["diff_area_%"] = round(100 * (a1 - a0) / a0, 6) if a0 else 0
+    r["scost_max_mm"] = round(dev, 5)
     r["spigoli_gap"], gmax = gap_spigoli(s); r["gap_max_mm"] = round(gmax, 4)
 
     problemi = []
-    if not r["valido_dopo"]: problemi.append("solido non valido dopo la conversione")
+    if not r["valido_dopo"]:
+        if r["valido_prima"]:
+            problemi.append("solido non valido dopo la conversione")
+        else:
+            # il file di Rhino era gia' difettoso: accettiamo se la conversione non aggiunge difetti
+            r["facce_non_valide_dopo"] = facce_non_valide(s)
+            if r["facce_non_valide_dopo"] > r["facce_non_valide_prima"]:
+                problemi.append(f"la conversione aggiunge facce non valide ({r['facce_non_valide_prima']} -> "
+                                f"{r['facce_non_valide_dopo']})")
     if r["solidi_dopo"] != r["solidi"]: problemi.append("numero di solidi cambiato")
     if v0 and abs(v1 - v0) / abs(v0) > TOL_VOL_REL: problemi.append("volume cambiato")
+    if a0 and abs(a1 - a0) / abs(a0) > TOL_AREA_REL: problemi.append("superficie totale cambiata (bordi delle facce alterati)")
     if r["scost_max_mm"] > TOL_DEV_MAX: problemi.append("geometria spostata oltre la tolleranza")
     note = []
     if cucito: note.append("il file conteneva superfici: cucite in solido")
+    if not r["valido_prima"]:
+        note.append(f"il file originale di Rhino ha gia' {r['facce_non_valide_prima']} facce difettose "
+                    f"(la conversione non le peggiora): se SolidWorks le segnala, la correzione va fatta in Rhino")
     if r["spigoli_gap"]: note.append(f"{r['spigoli_gap']} spigoli con gap > {TOL_GAP} mm (max {r['gap_max_mm']} mm): se SolidWorks segnala errori, guardare li'")
     if r["bspline_rimaste"]: note.append(f"{r['bspline_rimaste']} facce restano B-spline (forme libere o raccordi): su quelle niente accoppiamenti/quote di raggio")
     if problemi:

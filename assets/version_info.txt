@@ -1,16 +1,16 @@
 VSVersionInfo(
-  ffi=FixedFileInfo(filevers=(0, 2, 0, 0), prodvers=(0, 2, 0, 0), mask=0x3f, flags=0x0, OS=0x40004,
+  ffi=FixedFileInfo(filevers=(0, 2, 1, 0), prodvers=(0, 2, 1, 0), mask=0x3f, flags=0x0, OS=0x40004,
                     fileType=0x1, subtype=0x0, date=(0, 0)),
   kids=[
     StringFileInfo([StringTable('041004B0', [
       StringStruct('CompanyName', 'erric0x5b'),
       StringStruct('FileDescription', 'rhino2sw - STEP da Rhino per SolidWorks'),
-      StringStruct('FileVersion', '0.2.0'),
+      StringStruct('FileVersion', '0.2.1'),
       StringStruct('InternalName', 'rhino2sw'),
       StringStruct('LegalCopyright', 'MIT License'),
       StringStruct('OriginalFilename', 'rhino2sw.exe'),
       StringStruct('ProductName', 'rhino2sw'),
-      StringStruct('ProductVersion', '0.2.0')])]),
+      StringStruct('ProductVersion', '0.2.1')])]),
     VarFileInfo([VarStruct('Translation', [1040, 1200])])
   ]
 )
