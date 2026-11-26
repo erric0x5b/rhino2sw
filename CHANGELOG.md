@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 – non ancora pubblicata
+- **Controllo aggiornamenti**: all'avvio (al massimo una volta al giorno, in background) rhino2sw chiede a
+  GitHub qual è l'ultima release; se è più recente compare una barra con *Novità*, *Scarica* e
+  *Salta questa versione*. Il download avviene nel browser. Se rete o proxy bloccano la richiesta non
+  compare nessun errore. Disattivabile nelle impostazioni; controllo manuale da Aiuto → Controlla aggiornamenti.
+- Le release pubblicano anche `SHA256SUMS.txt` (base per l'installazione con un clic).
+
 ## 0.2.1 – 2026-11-26
 - **File di Rhino già difettosi**: se l'originale ha facce non valide, il pezzo viene convertito purché
   la conversione non aggiunga difetti; il rapporto lo segnala. Prima veniva rifiutato.

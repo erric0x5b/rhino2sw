@@ -39,7 +39,9 @@ jobs:
           fi
 
       - name: Test (sorgente)
-        run: python tests/test_conversione.py
+        run: |
+          python tests/test_conversione.py
+          python tests/test_aggiornamenti.py
 
       - name: Build eseguibile (PyInstaller)
         run: pyinstaller --noconfirm rhino2sw.spec
@@ -77,12 +79,21 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path dist\rhino2sw -DestinationPath "dist\rhino2sw-${{ steps.ver.outputs.version }}-portatile.zip"
 
+      - name: Impronte SHA-256
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\rhino2sw-*-setup.exe, dist\rhino2sw-*-portatile.zip |
+            ForEach-Object { "{0}  {1}" -f (Get-FileHash $_ -Algorithm SHA256).Hash.ToLower(), $_.Name } |
+            Set-Content -Encoding ascii dist\SHA256SUMS.txt
+          Get-Content dist\SHA256SUMS.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: rhino2sw-${{ steps.ver.outputs.version }}-windows
           path: |
             dist/rhino2sw-*-setup.exe
             dist/rhino2sw-*-portatile.zip
+            dist/SHA256SUMS.txt
           retention-days: 30
 
       - name: Release
@@ -92,4 +103,5 @@ jobs:
           files: |
             dist/rhino2sw-*-setup.exe
             dist/rhino2sw-*-portatile.zip
+            dist/SHA256SUMS.txt
           body_path: CHANGELOG.md

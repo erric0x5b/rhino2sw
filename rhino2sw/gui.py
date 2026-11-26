@@ -4,17 +4,18 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
-from PySide6.QtCore import Qt, QProcess, QTimer, QSortFilterProxyModel, QUrl
+from PySide6.QtCore import Qt, QProcess, QThread, QTimer, QSortFilterProxyModel, QUrl, Signal
 from PySide6.QtGui import (QAction, QBrush, QColor, QDesktopServices, QIcon, QStandardItem,
                            QStandardItemModel, QKeySequence)
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame,
                                QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
                                QRadioButton, QSpinBox, QStyle, QTableView, QTabWidget, QVBoxLayout,
                                QWidget)
 
-from . import REPO_URL, __version__, report, settings
+from . import REPO_URL, __version__, report, settings, updater
 
 ESTENSIONI = (".stp", ".step")
 CARTELLA_USCITA = "per_SolidWorks"
@@ -567,11 +568,17 @@ class DialogoImpostazioni(QDialog):
         f3.addRow("File convertiti in parallelo:", self.sp_proc)
         f3.addRow("Tempo massimo per file:", self.sp_time)
 
+        g4 = QGroupBox("Aggiornamenti")
+        l4 = QVBoxLayout(g4)
+        self.cb_agg = QCheckBox("Controlla all'avvio se c'è una versione nuova (una volta al giorno)")
+        self.cb_agg.setChecked(bool(self.s["controlla_aggiornamenti"]))
+        l4.addWidget(self.cb_agg)
+
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self._ok)
         bb.rejected.connect(self.reject)
         lay = QVBoxLayout(self)
-        for w in (g1, g2, g3):
+        for w in (g1, g2, g3, g4):
             lay.addWidget(w)
         lay.addWidget(bb)
 
@@ -593,9 +600,68 @@ class DialogoImpostazioni(QDialog):
                 QMessageBox.warning(self, "Impostazioni", f"Cartella non utilizzabile:\n{d}\n\n{ex}")
                 return
         self.s.update(cartella_uscita_fissa=fissa, cartella_rapporti=rapp,
-                      processi_paralleli=self.sp_proc.value(), timeout_minuti=self.sp_time.value())
+                      processi_paralleli=self.sp_proc.value(), timeout_minuti=self.sp_time.value(),
+                      controlla_aggiornamenti=self.cb_agg.isChecked())
         settings.salva(self.s)
         self.accept()
+
+
+# ---------------------------------------------------------------------------------------------
+class ControlloAggiornamenti(QThread):
+    """Esegue updater.controlla fuori dal thread della finestra."""
+    finito = Signal(str, object)
+
+    def __init__(self, s, manuale, parent=None):
+        super().__init__(parent)
+        self.s, self.manuale = s, manuale
+
+    def run(self):
+        esito, info = updater.controlla(self.s, manuale=self.manuale)
+        self.finito.emit(esito, info)
+
+
+class BarraAggiornamento(QFrame):
+    def __init__(self, finestra):
+        super().__init__()
+        self.finestra = finestra
+        self.info = None
+        self.setStyleSheet("QFrame { background: #e3eefc; border: 1px solid #9bbbe8; border-radius: 4px; }"
+                           "QLabel { border: none; }")
+        self.testo = QLabel()
+        b_novita = QPushButton("Novità")
+        b_scarica = QPushButton("Scarica")
+        b_scarica.setStyleSheet("font-weight: bold;")
+        b_salta = QPushButton("Salta questa versione")
+        b_chiudi = QPushButton("✕")
+        b_chiudi.setFixedWidth(28)
+        b_chiudi.setToolTip("Ricordamelo più tardi")
+        b_novita.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.info["pagina"])))
+        b_scarica.clicked.connect(self._scarica)
+        b_salta.clicked.connect(self._salta)
+        b_chiudi.clicked.connect(self.hide)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 4, 4, 4)
+        lay.addWidget(self.testo, 1)
+        for b in (b_novita, b_scarica, b_salta, b_chiudi):
+            lay.addWidget(b)
+        self.hide()
+
+    def mostra(self, info):
+        self.info = info
+        self.testo.setText(f"È disponibile <b>rhino2sw {info['versione']}</b> (questa è la {__version__}).")
+        self.show()
+
+    def _scarica(self):
+        # il download lo fa il browser: l'utente vede cosa scarica e l'antivirus lo controlla come sempre
+        QDesktopServices.openUrl(QUrl(self.info.get("setup_url") or self.info["pagina"]))
+        self.finestra.statusBar().showMessage(
+            "Scaricamento avviato nel browser: chiudi rhino2sw e lancia l'installatore scaricato", 10000)
+
+    def _salta(self):
+        s = settings.carica()
+        s["versione_saltata"] = self.info["versione"]
+        settings.salva(s)
+        self.hide()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -622,6 +688,8 @@ class Finestra(QMainWindow):
             lambda: QDesktopServices.openUrl(QUrl(REPO_URL)))
         m_help.addAction("Segnala un problema").triggered.connect(
             lambda: QDesktopServices.openUrl(QUrl(REPO_URL + "/issues/new")))
+        m_help.addAction("Controlla aggiornamenti").triggered.connect(lambda: self.controlla_aggiornamenti(True))
+        m_help.addSeparator()
         m_help.addAction("Informazioni").triggered.connect(self._info)
 
         self.tab = QTabWidget()
@@ -630,8 +698,17 @@ class Finestra(QMainWindow):
         a_agg.triggered.connect(self.pagina_conversione._scegli_file)
         self.tab.addTab(self.pagina_conversione, "Conversione")
         self.tab.addTab(self.pagina_rapporti, "Rapporti")
-        self.setCentralWidget(self.tab)
+        self.barra_agg = BarraAggiornamento(self)
+        centro = QWidget()
+        lc = QVBoxLayout(centro)
+        lc.setContentsMargins(6, 6, 6, 0)
+        lc.addWidget(self.barra_agg)
+        lc.addWidget(self.tab, 1)
+        self.setCentralWidget(centro)
         self.statusBar()
+        self._thread_agg = None
+        if not os.environ.get("RHINO2SW_AUTOTEST") and updater.da_controllare(settings.carica()):
+            QTimer.singleShot(1500, lambda: self.controlla_aggiornamenti(False))
         if file_iniziali:
             self.pagina_conversione.aggiungi_percorsi(file_iniziali)
 
@@ -651,6 +728,33 @@ class Finestra(QMainWindow):
             self.pagina_conversione.aggiorna_etichetta_uscita()
             self.pagina_rapporti.ricarica()
 
+    def controlla_aggiornamenti(self, manuale):
+        if self._thread_agg is not None and self._thread_agg.isRunning():
+            return
+        if manuale:
+            self.statusBar().showMessage("Controllo aggiornamenti…")
+        self._thread_agg = ControlloAggiornamenti(settings.carica(), manuale, self)
+        self._thread_agg.finito.connect(lambda e, i: self._esito_aggiornamenti(e, i, manuale))
+        self._thread_agg.start()
+
+    def _esito_aggiornamenti(self, esito, info, manuale):
+        if esito != "errore":
+            s = settings.carica()
+            s["ultimo_controllo"] = int(time.time())
+            settings.salva(s)
+        if esito == "nuova":
+            self.barra_agg.mostra(info)
+            if manuale:
+                self.statusBar().clearMessage()
+        elif manuale:
+            self.statusBar().clearMessage()
+            if esito == "errore":
+                QMessageBox.warning(self, "Aggiornamenti",
+                                    f"Impossibile controllare gli aggiornamenti:\n{info}\n\n"
+                                    f"Le versioni sono comunque su {REPO_URL}/releases")
+            else:
+                QMessageBox.information(self, "Aggiornamenti", f"rhino2sw {__version__} è aggiornato.")
+
     def _info(self):
         QMessageBox.about(self, "rhino2sw",
                           f"<b>rhino2sw {__version__}</b><br>Pulizia dei file STEP di Rhino per SolidWorks.<br><br>"
@@ -666,6 +770,8 @@ class Finestra(QMainWindow):
                 e.ignore()
                 return
             self.pagina_conversione.ferma()
+        if self._thread_agg is not None and self._thread_agg.isRunning():
+            self._thread_agg.wait(6000)
         e.accept()
 
 

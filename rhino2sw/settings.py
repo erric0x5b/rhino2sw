@@ -20,6 +20,9 @@ PREDEFINITE = {
     "cartella_uscita_fissa": "",   # vuoto = accanto agli originali in per_SolidWorks
     "processi_paralleli": 2,
     "timeout_minuti": 15,
+    "controlla_aggiornamenti": True,
+    "ultimo_controllo": 0,          # epoch dell'ultimo controllo aggiornamenti riuscito
+    "versione_saltata": "",         # "Salta questa versione"
 }
 
 

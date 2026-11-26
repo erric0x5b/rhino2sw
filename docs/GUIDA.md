@@ -46,6 +46,12 @@ I rapporti della versione 0.1 (`rapporto_AAAAMMGG_HHMMSS.csv`) si recuperano con
 - *spigoli con gap*: punti dove le facce non combaciano entro 0,001 mm; se SolidWorks segnala errori, sono lì.
 - *superfici aperte*: il pezzo non è chiuso in Rhino; va sistemato prima di esportare.
 
-## 6. Problemi
+## 6. Aggiornamenti
+All'avvio rhino2sw controlla (al massimo una volta al giorno) se su GitHub c'è una versione nuova. Se c'è,
+compare una barra azzurra in alto: *Scarica* apre il download dell'installatore nel browser; chiudere
+rhino2sw e lanciare il file scaricato. Rapporti e impostazioni restano.
+Si disattiva da **File → Impostazioni → Aggiornamenti**; controllo manuale da **Aiuto → Controlla aggiornamenti**.
+
+## 7. Problemi
 Menu **Aiuto → Segnala un problema** apre una issue su GitHub. Non allegare i modelli: copiare la riga del
 rapporto (esito, numero di facce, note).
