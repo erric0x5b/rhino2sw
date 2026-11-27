@@ -801,8 +801,10 @@ class Finestra(QMainWindow):
                 QMessageBox.information(self, "Aggiornamenti", f"rhino2sw {__version__} è aggiornato.")
 
     def _info(self):
+        logo = _risorsa("rhino2sw_logo.png")
+        img = f"<img src='{QUrl.fromLocalFile(logo).toString()}' width='128'><br>" if logo else ""
         QMessageBox.about(self, "rhino2sw",
-                          f"<b>rhino2sw {__version__}</b><br>Pulizia dei file STEP di Rhino per SolidWorks.<br><br>"
+                          f"{img}<b>rhino2sw {__version__}</b><br>Pulizia dei file STEP di Rhino per SolidWorks.<br><br>"
                           f"Riconosce le facce piane, cilindriche e coniche e le riscrive come geometria esatta, "
                           f"senza spostarla. Se un controllo fallisce il file non viene scritto.<br><br>"
                           f"<a href='{REPO_URL}'>{REPO_URL}</a><br>Licenza MIT. "
@@ -820,13 +822,19 @@ class Finestra(QMainWindow):
         e.accept()
 
 
-def _icona():
+def _risorsa(nome):
+    """Percorso di un file grafico, sia nell'eseguibile (PyInstaller) sia nel repository."""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-    for p in (os.path.join(base, "rhino2sw.ico"), os.path.join(base, "assets", "rhino2sw.ico"),
-              os.path.join(os.path.dirname(base), "assets", "rhino2sw.ico")):
+    for p in (os.path.join(base, nome), os.path.join(base, "assets", nome),
+              os.path.join(os.path.dirname(base), "assets", nome)):
         if os.path.exists(p):
-            return QIcon(p)
-    return QIcon()
+            return p
+    return None
+
+
+def _icona():
+    p = _risorsa("rhino2sw.ico")
+    return QIcon(p) if p else QIcon()
 
 
 def avvia(argv):

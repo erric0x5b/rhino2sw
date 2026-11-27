@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="sfondo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22457f"/>
+      <stop offset="1" stop-color="#152d57"/>
+    </linearGradient>
+    <linearGradient id="pelle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b9c3cf"/>
+      <stop offset="1" stop-color="#8794a6"/>
+    </linearGradient>
+    <clipPath id="bordo"><rect x="8" y="8" width="496" height="496" rx="96"/></clipPath>
+  </defs>
+
+  <!-- sfondo -->
+  <rect x="8" y="8" width="496" height="496" rx="96" fill="url(#sfondo)"/>
+
+  <g clip-path="url(#bordo)"><g transform="translate(-8 -22) scale(1.04)">
+  <!-- blocco CAD isometrico con foro cilindrico (la geometria "esatta") -->
+  <g transform="translate(296 226) scale(0.92)">
+    <polygon points="0,40 110,-20 200,30 90,92" fill="#ffc35a"/>              <!-- faccia superiore -->
+    <polygon points="0,40 90,92 90,212 0,160" fill="#e8962b"/>               <!-- faccia sinistra -->
+    <polygon points="90,92 200,30 200,150 90,212" fill="#c4741a"/>           <!-- faccia destra -->
+    <ellipse cx="100" cy="36" rx="34" ry="19" fill="#8a4f0e"/>               <!-- foro -->
+    <path d="M66,36 a34,19 0 0 0 68,0 v14 a34,19 0 0 1 -68,0 z" fill="#5e3507" opacity="0.55"/>
+    <polyline points="0,40 110,-20 200,30" fill="none" stroke="#fff3d6" stroke-width="4" stroke-linejoin="round" opacity="0.7"/>
+  </g>
+
+
+  <!-- rinoceronte originale, stilizzato, che si arrampica sul blocco -->
+  <g transform="translate(-6 -4) rotate(-27 210 330)">
+    <!-- zampe posteriori (a terra) -->
+    <rect x="96" y="318" width="34" height="84" rx="12" fill="#7b889a"/>
+    <rect x="136" y="318" width="36" height="88" rx="12" fill="url(#pelle)"/>
+    <!-- coda -->
+    <path d="M82 282 q-26 6 -30 30" fill="none" stroke="#7b889a" stroke-width="9" stroke-linecap="round"/>
+    <circle cx="51" cy="315" r="7" fill="#5f6b7c"/>
+    <!-- corpo -->
+    <path d="M78 300 C70 240 120 206 196 204 C262 202 318 222 330 268 C340 312 300 346 236 348 L130 350 C98 350 82 330 78 300 Z" fill="url(#pelle)"/>
+    <!-- pieghe della corazza -->
+    <path d="M150 214 C140 260 142 310 154 346" fill="none" stroke="#7b889a" stroke-width="6" stroke-linecap="round"/>
+    <path d="M262 212 C276 250 278 300 262 344" fill="none" stroke="#7b889a" stroke-width="6" stroke-linecap="round"/>
+    <!-- zampe anteriori (sul blocco) -->
+    <rect x="250" y="318" width="36" height="74" rx="12" fill="#7b889a"/>
+    <rect x="290" y="310" width="38" height="78" rx="12" fill="url(#pelle)"/>
+    <!-- testa -->
+    <path d="M316 236 C340 214 384 214 414 234 C436 248 446 270 440 290 C432 312 398 318 368 312 C344 306 324 290 316 270 Z" fill="url(#pelle)"/>
+    <!-- corni -->
+    <path d="M414 236 C424 206 432 186 446 170 C446 196 442 222 436 246 Z" fill="#eef2f7"/>
+    <path d="M388 226 C392 210 398 200 406 192 C408 208 406 220 402 232 Z" fill="#dfe5ee"/>
+    <!-- orecchio -->
+    <path d="M330 232 C326 210 332 196 344 188 C350 204 348 220 342 234 Z" fill="#8794a6"/>
+    <!-- occhio -->
+    <circle cx="370" cy="256" r="7" fill="#1b2433"/>
+    <circle cx="372" cy="254" r="2.2" fill="#ffffff"/>
+    <!-- narice e bocca -->
+    <circle cx="428" cy="282" r="4" fill="#5f6b7c"/>
+    <path d="M404 302 q12 6 24 -2" fill="none" stroke="#5f6b7c" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  </g>
+  </g>
+</svg>

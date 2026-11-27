@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 – non ancora pubblicata
+- Nuovo logo e nuova icona (rinoceronte originale che si arrampica su un blocco CAD con foro cilindrico);
+  logo nella finestra Informazioni e nel README. Sorgenti SVG in `assets/`, rigenerabili con
+  `assets/crea_icona.sh`.
+
 ## 0.3.0 – 2026-11-27
 - **Divisione degli assiemi Rhino in parti** (verificata in SolidWorks 2019 su un assieme reale da 73 istanze): un file STEP con più corpi diventa una cartella con un file
   per parte (nome dall'oggetto Rhino, poi dal blocco, poi dal layer; impostabile "prima il layer") e un

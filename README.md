@@ -8,7 +8,7 @@ le facce che sono piani, cilindri e coni, le riscrive come geometria analitica *
 geometria**, unisce le facce spezzate e controlla il risultato. Se un controllo fallisce il file non
 viene scritto.
 
-![icona](assets/rhino2sw.png)
+<p align="center"><img src="assets/rhino2sw_logo.png" width="200" alt="logo rhino2sw"></p>
 
 ## Installazione (utenti)
 Scaricare `rhino2sw-X.Y.Z-setup.exe` dalla pagina [Releases](https://github.com/erric0x5b/rhino2sw/releases)

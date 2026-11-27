@@ -11,7 +11,7 @@ for pkg in ("OCP", "cadquery_ocp", "cadquery_ocp_proxy"):
     except Exception:
         pass
 hiddenimports += collect_submodules("rhino2sw")
-datas += [("assets/rhino2sw.ico", ".")]
+datas += [("assets/rhino2sw.ico", "."), ("assets/rhino2sw_logo.png", ".")]
 
 a = Analysis(
     ["run_rhino2sw.py"],
