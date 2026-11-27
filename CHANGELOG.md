@@ -1,7 +1,7 @@
 # Changelog
 
-## 0.3.0 – non ancora pubblicata
-- **Divisione degli assiemi Rhino in parti**: un file STEP con più corpi diventa una cartella con un file
+## 0.3.0 – 2026-11-27
+- **Divisione degli assiemi Rhino in parti** (verificata in SolidWorks 2019 su un assieme reale da 73 istanze): un file STEP con più corpi diventa una cartella con un file
   per parte (nome dall'oggetto Rhino, poi dal blocco, poi dal layer; impostabile "prima il layer") e un
   `ASSIEME_<nome>.stp` che rimette le parti nelle posizioni di Rhino. I blocchi ripetuti diventano una parte
   sola usata più volte. In alternativa: un file per istanza in coordinate assolute. Le superfici aperte non
