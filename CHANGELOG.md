@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.0 – 2026-11-27
+- **Divisione degli assiemi Rhino in parti** (verificata in SolidWorks 2019 su un assieme reale da 73 istanze): un file STEP con più corpi diventa una cartella con un file
+  per parte (nome dall'oggetto Rhino, poi dal blocco, poi dal layer; impostabile "prima il layer") e un
+  `ASSIEME_<nome>.stp` che rimette le parti nelle posizioni di Rhino. I blocchi ripetuti diventano una parte
+  sola usata più volte. In alternativa: un file per istanza in coordinate assolute. Le superfici aperte non
+  vengono esportate (opzione per includerle). Se una parte non si pulisce, nell'assieme va l'originale.
+- **Cilindri e coni completi (360°)**: la cucitura della nuova superficie viene allineata a quella esistente
+  e le curve di cucitura ricostruite; prima queste facce si annullavano e il pezzo veniva rifiutato.
+- Le superfici nuove sono sempre con assi destrorsi; se la normale è opposta si gira la faccia
+  (prima si invertiva la superficie e lo STEP scritto poteva rileggersi con facce rovesciate).
+- **Verifica per rilettura**: ogni pezzo convertito viene scritto, riletto e confrontato con la rilettura
+  dell'originale; le facce che si rileggono male restano B-spline e si riprova (fino a 3 volte).
+- L'unione delle facce spezzate viene saltata se rende il solido non valido (prima poteva gonfiare le
+  tolleranze di millimetri); nuovo controllo sulle tolleranze degli spigoli.
+- Controllo volume proporzionale all'area (area × 0,001 mm) e area totale entro 0,01 %: i limiti fissi
+  rifiutavano pezzi piccoli con molte facce già corretti. Facce sotto 0,01 mm² non vengono convertite.
+- **Controllo aggiornamenti**: all'avvio (al massimo una volta al giorno, in background) rhino2sw chiede a
+  GitHub qual è l'ultima release; se è più recente compare una barra con *Novità*, *Scarica* e
+  *Salta questa versione*. Il download avviene nel browser. Se rete o proxy bloccano la richiesta non
+  compare nessun errore. Disattivabile nelle impostazioni; controllo manuale da Aiuto → Controlla aggiornamenti.
+- Le release pubblicano anche `SHA256SUMS.txt` (base per l'installazione con un clic).
+
 ## 0.2.1 – 2026-11-26
 - **File di Rhino già difettosi**: se l'originale ha facce non valide, il pezzo viene convertito purché
   la conversione non aggiunga difetti; il rapporto lo segnala. Prima veniva rifiutato.

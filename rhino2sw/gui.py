@@ -4,22 +4,24 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
-from PySide6.QtCore import Qt, QProcess, QTimer, QSortFilterProxyModel, QUrl
+from PySide6.QtCore import Qt, QProcess, QThread, QTimer, QSortFilterProxyModel, QUrl, Signal
 from PySide6.QtGui import (QAction, QBrush, QColor, QDesktopServices, QIcon, QStandardItem,
                            QStandardItemModel, QKeySequence)
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame,
                                QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
                                QRadioButton, QSpinBox, QStyle, QTableView, QTabWidget, QVBoxLayout,
                                QWidget)
 
-from . import REPO_URL, __version__, report, settings
+from . import REPO_URL, __version__, report, settings, updater
 
 ESTENSIONI = (".stp", ".step")
 CARTELLA_USCITA = "per_SolidWorks"
 
-COLORI = {"OK": "#d9f2dd", "NON CONVERTITO": "#fff1c7", "ERRORE": "#f8d4d4"}
+COLORI = {"OK": "#d9f2dd", "PARZIALE": "#fff1c7", "NON CONVERTITO": "#fff1c7", "SUPERFICI": "#eeeeee",
+          "ERRORE": "#f8d4d4"}
 
 
 def _raccogli(percorsi):
@@ -161,7 +163,13 @@ class PaginaConversione(QWidget):
     def aggiorna_etichetta_uscita(self):
         s = settings.carica()
         dove = s["cartella_uscita_fissa"] or f"accanto agli originali, nella cartella «{CARTELLA_USCITA}»"
-        self.etichetta_uscita.setText(f"File convertiti: {dove} &nbsp; <a href='#'>cambia…</a>")
+        if s["dividi_assiemi"]:
+            ass = ("una parte per corpo + file d'assieme" if s["modo_parti"] == "assieme"
+                   else "un file per istanza in coordinate assolute")
+            ass = f" — file con più corpi: {ass}, nomi da {'oggetto' if s['nome_parti'] == 'oggetto' else 'layer'}"
+        else:
+            ass = " — file con più corpi: parte multicorpo"
+        self.etichetta_uscita.setText(f"File convertiti: {dove}{ass} &nbsp; <a href='#'>cambia…</a>")
 
     def aggiungi_percorsi(self, percorsi):
         presenti = {v["path"] for v in self.voci}
@@ -215,7 +223,7 @@ class PaginaConversione(QWidget):
             stato = r.get("esito", stato)
         valori = [os.path.basename(v["path"]), os.path.dirname(v["path"]), stato,
                   str(r.get("convertite", "")), str(r.get("bspline_rimaste", "")),
-                  "" if r.get("scost_max_mm") is None else f"{r['scost_max_mm']:.5f}".replace(".", ","),
+                  "" if not isinstance(r.get("scost_max_mm"), (int, float)) else f"{r['scost_max_mm']:.5f}".replace(".", ","),
                   r.get("note", "")]
         colore = COLORI.get(stato)
         for c, testo in enumerate(valori):
@@ -262,6 +270,10 @@ class PaginaConversione(QWidget):
             args = pre + ["--worker", self.voci[i]["path"], jp]
             if self.s["cartella_uscita_fissa"]:
                 args += ["--uscita", self.s["cartella_uscita_fissa"]]
+            if self.s["dividi_assiemi"]:
+                args += ["--dividi", "--modo", self.s["modo_parti"], "--nomi", self.s["nome_parti"]]
+                if self.s["includi_superfici"]:
+                    args.append("--superfici")
             pr = QProcess(self)
             pr.setProcessChannelMode(QProcess.MergedChannels)
             pr.finished.connect(lambda code, status, pr=pr: self._finito(pr, code, status))
@@ -338,9 +350,11 @@ class PaginaConversione(QWidget):
             except OSError as ex:
                 msg = f" — impossibile scrivere il rapporto: {ex}"
         ok = sum(r.get("esito") == "OK" for r in self.risultati_lotto)
+        pz = sum(r.get("esito") == "PARZIALE" for r in self.risultati_lotto)
         nc = sum(r.get("esito") == "NON CONVERTITO" for r in self.risultati_lotto)
-        er = len(self.risultati_lotto) - ok - nc
-        self.finestra.statusBar().showMessage(f"Fatto: {ok} OK, {nc} non convertiti, {er} errori{msg}")
+        er = len(self.risultati_lotto) - ok - nc - pz
+        extra = f", {pz} assiemi parziali" if pz else ""
+        self.finestra.statusBar().showMessage(f"Fatto: {ok} OK{extra}, {nc} non convertiti, {er} errori{msg}")
         self.finestra.pagina_rapporti.ricarica()
         self.avanzamento.setVisible(False)
         auto = os.environ.get("RHINO2SW_AUTOTEST")
@@ -371,7 +385,7 @@ class PaginaRapporti(QWidget):
     VISTE = [("data_ora", "Data"), ("file", "File"), ("esito", "Esito"), ("convertite", "Convertite"),
              ("bspline_rimaste", "B-spline rimaste"), ("scost_max_mm", "Scostamento (mm)"),
              ("spigoli_gap", "Spigoli con gap"), ("gap_max_mm", "Gap max (mm)"), ("tipi_dopo", "Facce dopo"),
-             ("note", "Note"), ("utente", "Utente"), ("pc", "PC"), ("versione", "Versione"),
+             ("note", "Note"), ("layer", "Layer"), ("blocco", "Blocco"), ("istanze", "Istanze"), ("utente", "Utente"), ("pc", "PC"), ("versione", "Versione"),
              ("percorso", "Originale"), ("file_uscita", "Convertito")]
 
     def __init__(self, finestra):
@@ -388,7 +402,7 @@ class PaginaRapporti(QWidget):
         self.cerca.setClearButtonEnabled(True)
         self.cerca.textChanged.connect(self._filtra)
         self.combo = QComboBox()
-        self.combo.addItems(["Tutti gli esiti", "OK", "NON CONVERTITO", "ERRORE"])
+        self.combo.addItems(["Tutti gli esiti", "OK", "NON CONVERTITO", "SUPERFICI", "ERRORE"])
         self.combo.currentIndexChanged.connect(self._filtra)
         b_agg = QPushButton("Aggiorna")
         b_agg.clicked.connect(self.ricarica)
@@ -470,7 +484,7 @@ class PaginaRapporti(QWidget):
         self.filtro.esito = "" if self.combo.currentIndex() == 0 else self.combo.currentText()
         self.filtro.invalidate()
         tot = self.filtro.rowCount()
-        cont = {"OK": 0, "NON CONVERTITO": 0, "ERRORE": 0}
+        cont = {"OK": 0, "NON CONVERTITO": 0, "ERRORE": 0, "SUPERFICI": 0}
         for i in range(tot):
             e = self.filtro.index(i, 2).data()
             cont[e] = cont.get(e, 0) + 1
@@ -567,11 +581,45 @@ class DialogoImpostazioni(QDialog):
         f3.addRow("File convertiti in parallelo:", self.sp_proc)
         f3.addRow("Tempo massimo per file:", self.sp_time)
 
+        g5 = QGroupBox("File con più corpi (assiemi Rhino)")
+        l5 = QVBoxLayout(g5)
+        self.cb_dividi = QCheckBox("Dividi in file di parti (un file per corpo; i blocchi ripetuti diventano una parte sola)")
+        self.cb_dividi.setChecked(bool(self.s["dividi_assiemi"]))
+        self.r_assieme = QRadioButton("Parti + file d'assieme che le rimette nelle posizioni di Rhino "
+                                      "(i blocchi hanno origine nel punto base)")
+        self.r_assolute = QRadioButton("Un file per ogni istanza in coordinate assolute di Rhino "
+                                       "(inseriti all'origine si ricompone l'assieme)")
+        (self.r_assolute if self.s["modo_parti"] == "assolute" else self.r_assieme).setChecked(True)
+        self.co_nomi = QComboBox()
+        self.co_nomi.addItems(["Nome oggetto (poi blocco, poi layer)", "Layer (poi nome oggetto, poi blocco)"])
+        self.co_nomi.setCurrentIndex(1 if self.s["nome_parti"] == "layer" else 0)
+        self.cb_sup = QCheckBox("Esporta anche le superfici aperte (non solidi)")
+        self.cb_sup.setChecked(bool(self.s["includi_superfici"]))
+        riga5 = QHBoxLayout()
+        riga5.addWidget(QLabel("Nome dei file:"))
+        riga5.addWidget(self.co_nomi, 1)
+        for w in (self.cb_dividi, self.r_assieme, self.r_assolute):
+            l5.addWidget(w)
+        l5.addLayout(riga5)
+        l5.addWidget(self.cb_sup)
+
+        def _abilita(on):
+            for w in (self.r_assieme, self.r_assolute, self.co_nomi, self.cb_sup):
+                w.setEnabled(on)
+        self.cb_dividi.toggled.connect(_abilita)
+        _abilita(self.cb_dividi.isChecked())
+
+        g4 = QGroupBox("Aggiornamenti")
+        l4 = QVBoxLayout(g4)
+        self.cb_agg = QCheckBox("Controlla all'avvio se c'è una versione nuova (una volta al giorno)")
+        self.cb_agg.setChecked(bool(self.s["controlla_aggiornamenti"]))
+        l4.addWidget(self.cb_agg)
+
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self._ok)
         bb.rejected.connect(self.reject)
         lay = QVBoxLayout(self)
-        for w in (g1, g2, g3):
+        for w in (g1, g5, g2, g3, g4):
             lay.addWidget(w)
         lay.addWidget(bb)
 
@@ -593,9 +641,72 @@ class DialogoImpostazioni(QDialog):
                 QMessageBox.warning(self, "Impostazioni", f"Cartella non utilizzabile:\n{d}\n\n{ex}")
                 return
         self.s.update(cartella_uscita_fissa=fissa, cartella_rapporti=rapp,
-                      processi_paralleli=self.sp_proc.value(), timeout_minuti=self.sp_time.value())
+                      processi_paralleli=self.sp_proc.value(), timeout_minuti=self.sp_time.value(),
+                      controlla_aggiornamenti=self.cb_agg.isChecked(),
+                      dividi_assiemi=self.cb_dividi.isChecked(),
+                      modo_parti="assolute" if self.r_assolute.isChecked() else "assieme",
+                      nome_parti="layer" if self.co_nomi.currentIndex() == 1 else "oggetto",
+                      includi_superfici=self.cb_sup.isChecked())
         settings.salva(self.s)
         self.accept()
+
+
+# ---------------------------------------------------------------------------------------------
+class ControlloAggiornamenti(QThread):
+    """Esegue updater.controlla fuori dal thread della finestra."""
+    finito = Signal(str, object)
+
+    def __init__(self, s, manuale, parent=None):
+        super().__init__(parent)
+        self.s, self.manuale = s, manuale
+
+    def run(self):
+        esito, info = updater.controlla(self.s, manuale=self.manuale)
+        self.finito.emit(esito, info)
+
+
+class BarraAggiornamento(QFrame):
+    def __init__(self, finestra):
+        super().__init__()
+        self.finestra = finestra
+        self.info = None
+        self.setStyleSheet("QFrame { background: #e3eefc; border: 1px solid #9bbbe8; border-radius: 4px; }"
+                           "QLabel { border: none; }")
+        self.testo = QLabel()
+        b_novita = QPushButton("Novità")
+        b_scarica = QPushButton("Scarica")
+        b_scarica.setStyleSheet("font-weight: bold;")
+        b_salta = QPushButton("Salta questa versione")
+        b_chiudi = QPushButton("✕")
+        b_chiudi.setFixedWidth(28)
+        b_chiudi.setToolTip("Ricordamelo più tardi")
+        b_novita.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.info["pagina"])))
+        b_scarica.clicked.connect(self._scarica)
+        b_salta.clicked.connect(self._salta)
+        b_chiudi.clicked.connect(self.hide)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 4, 4, 4)
+        lay.addWidget(self.testo, 1)
+        for b in (b_novita, b_scarica, b_salta, b_chiudi):
+            lay.addWidget(b)
+        self.hide()
+
+    def mostra(self, info):
+        self.info = info
+        self.testo.setText(f"È disponibile <b>rhino2sw {info['versione']}</b> (questa è la {__version__}).")
+        self.show()
+
+    def _scarica(self):
+        # il download lo fa il browser: l'utente vede cosa scarica e l'antivirus lo controlla come sempre
+        QDesktopServices.openUrl(QUrl(self.info.get("setup_url") or self.info["pagina"]))
+        self.finestra.statusBar().showMessage(
+            "Scaricamento avviato nel browser: chiudi rhino2sw e lancia l'installatore scaricato", 10000)
+
+    def _salta(self):
+        s = settings.carica()
+        s["versione_saltata"] = self.info["versione"]
+        settings.salva(s)
+        self.hide()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -622,6 +733,8 @@ class Finestra(QMainWindow):
             lambda: QDesktopServices.openUrl(QUrl(REPO_URL)))
         m_help.addAction("Segnala un problema").triggered.connect(
             lambda: QDesktopServices.openUrl(QUrl(REPO_URL + "/issues/new")))
+        m_help.addAction("Controlla aggiornamenti").triggered.connect(lambda: self.controlla_aggiornamenti(True))
+        m_help.addSeparator()
         m_help.addAction("Informazioni").triggered.connect(self._info)
 
         self.tab = QTabWidget()
@@ -630,8 +743,17 @@ class Finestra(QMainWindow):
         a_agg.triggered.connect(self.pagina_conversione._scegli_file)
         self.tab.addTab(self.pagina_conversione, "Conversione")
         self.tab.addTab(self.pagina_rapporti, "Rapporti")
-        self.setCentralWidget(self.tab)
+        self.barra_agg = BarraAggiornamento(self)
+        centro = QWidget()
+        lc = QVBoxLayout(centro)
+        lc.setContentsMargins(6, 6, 6, 0)
+        lc.addWidget(self.barra_agg)
+        lc.addWidget(self.tab, 1)
+        self.setCentralWidget(centro)
         self.statusBar()
+        self._thread_agg = None
+        if not os.environ.get("RHINO2SW_AUTOTEST") and updater.da_controllare(settings.carica()):
+            QTimer.singleShot(1500, lambda: self.controlla_aggiornamenti(False))
         if file_iniziali:
             self.pagina_conversione.aggiungi_percorsi(file_iniziali)
 
@@ -651,6 +773,33 @@ class Finestra(QMainWindow):
             self.pagina_conversione.aggiorna_etichetta_uscita()
             self.pagina_rapporti.ricarica()
 
+    def controlla_aggiornamenti(self, manuale):
+        if self._thread_agg is not None and self._thread_agg.isRunning():
+            return
+        if manuale:
+            self.statusBar().showMessage("Controllo aggiornamenti…")
+        self._thread_agg = ControlloAggiornamenti(settings.carica(), manuale, self)
+        self._thread_agg.finito.connect(lambda e, i: self._esito_aggiornamenti(e, i, manuale))
+        self._thread_agg.start()
+
+    def _esito_aggiornamenti(self, esito, info, manuale):
+        if esito != "errore":
+            s = settings.carica()
+            s["ultimo_controllo"] = int(time.time())
+            settings.salva(s)
+        if esito == "nuova":
+            self.barra_agg.mostra(info)
+            if manuale:
+                self.statusBar().clearMessage()
+        elif manuale:
+            self.statusBar().clearMessage()
+            if esito == "errore":
+                QMessageBox.warning(self, "Aggiornamenti",
+                                    f"Impossibile controllare gli aggiornamenti:\n{info}\n\n"
+                                    f"Le versioni sono comunque su {REPO_URL}/releases")
+            else:
+                QMessageBox.information(self, "Aggiornamenti", f"rhino2sw {__version__} è aggiornato.")
+
     def _info(self):
         QMessageBox.about(self, "rhino2sw",
                           f"<b>rhino2sw {__version__}</b><br>Pulizia dei file STEP di Rhino per SolidWorks.<br><br>"
@@ -666,6 +815,8 @@ class Finestra(QMainWindow):
                 e.ignore()
                 return
             self.pagina_conversione.ferma()
+        if self._thread_agg is not None and self._thread_agg.isRunning():
+            self._thread_agg.wait(6000)
         e.accept()
 
 

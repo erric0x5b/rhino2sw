@@ -14,7 +14,8 @@ IN_ATTESA = "rapporti_in_attesa.csv"   # righe non scritte perche' il CSV era bl
 
 CAMPI = ["data_ora", "utente", "pc", "versione", "file", "esito", "solidi", "facce_prima", "facce_dopo",
          "convertite", "bspline_rimaste", "tipi_prima", "tipi_dopo", "volume_mm3", "diff_volume_%",
-         "diff_area_%", "scost_max_mm", "spigoli_gap", "gap_max_mm", "secondi", "note", "percorso", "file_uscita"]
+         "diff_area_%", "scost_max_mm", "spigoli_gap", "gap_max_mm", "secondi", "note", "percorso", "file_uscita",
+         "istanze", "oggetto_rhino", "blocco", "layer"]
 DECIMALI = {"volume_mm3": 2, "diff_volume_%": 6, "diff_area_%": 6, "scost_max_mm": 5, "gap_max_mm": 4, "secondi": 1}
 NUMERICI = set(DECIMALI)
 
@@ -29,6 +30,11 @@ def _fmt(k, v):
     if k in NUMERICI and isinstance(v, (int, float)):
         return f"{v:.{DECIMALI[k]}f}".replace(".", ",")
     return str(v)
+
+
+def espandi(r):
+    """Un file diviso in parti diventa una riga per parte."""
+    return r.get("parti") or [r]
 
 
 def riga_da_risultato(r):
@@ -85,7 +91,7 @@ def _leggi_attesa():
 
 def aggiungi(risultati, s=None, tentativi=5):
     """Scrive i risultati nel CSV unico. Restituisce (percorso_scritto, in_attesa: bool)."""
-    righe = _leggi_attesa() + [riga_da_risultato(r) for r in risultati]
+    righe = _leggi_attesa() + [riga_da_risultato(x) for r in risultati for x in espandi(r)]
     dest = percorso_csv(s)
     for i in range(tentativi):
         try:
